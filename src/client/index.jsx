@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 const FRAME_COUNT = 31;
 const KEYS = [0, 6, 12, 18, 24, 30];
@@ -57,6 +57,65 @@ function usePos() {
 function nearestName(p) {
   const i = Math.round(clampPos(p));
   return NAMES[Math.min(NAMES.length - 1, Math.floor(i / 6))];
+}
+
+const EFFORT_ALIASES = {
+  off: ["off", "none"],
+  low: ["low"],
+  high: ["high"],
+  max: ["max", "xhigh"],
+};
+
+function effortFromPos(p) {
+  const k = clampPos(p) / 6;
+  if (k <= 0) return "off";
+  if (k <= 2) return "low";
+  if (k <= 4) return "high";
+  return "max";
+}
+
+function canonicalPosForEffort(effort) {
+  if (effort === "off") return 0;
+  if (effort === "low") return 6;
+  if (effort === "high") return 18;
+  if (effort === "max") return 30;
+  return null;
+}
+
+function normalizeEffortId(id) {
+  if (id == null || id === "") return null;
+  const raw = String(id).toLowerCase();
+  for (const [name, aliases] of Object.entries(EFFORT_ALIASES)) {
+    if (aliases.includes(raw)) return name;
+  }
+  return raw;
+}
+
+function findEffortEntry(efforts, want) {
+  if (!Array.isArray(efforts) || !want) return null;
+  const aliases = EFFORT_ALIASES[want] || [want];
+  return efforts.find((item) => aliases.includes(String(item.id).toLowerCase())) ?? null;
+}
+
+function isDeepSeekSelection(selection) {
+  if (!selection) return false;
+  const blob = `${selection.provider || ""} ${selection.model || ""}`.toLowerCase();
+  return blob.includes("deepseek");
+}
+
+const EMPTY_DIRECTORY = { current: null, groups: [], status: "idle", error: null };
+
+function modelReasoning(state) {
+  const current = state?.current;
+  if (!current) return null;
+  const group = (state.groups || []).find((item) => item.id === current.provider);
+  const model = group?.models?.find((item) => item.id === current.model);
+  if (!model?.reasoning) return null;
+  return {
+    selection: current,
+    efforts: model.reasoning.efforts || [],
+    defaultEffort: model.reasoning.defaultEffort,
+  };
 }
 
 function lerp(a, b, t) {
@@ -273,10 +332,13 @@ html.liang-rheostat-cards svg[viewBox="0 0 182 24"] [clip-path*="badge"] path {
   fill: #171816 !important;
 }
 .lr-chip {
+  position: relative;
+  z-index: 6;
   display: inline-flex;
   align-items: center;
   margin: 0 3px;
   padding: 0;
+  overflow: visible;
   user-select: none;
   -webkit-user-select: none;
 }
@@ -291,6 +353,45 @@ html.liang-rheostat-cards svg[viewBox="0 0 182 24"] [clip-path*="badge"] path {
   height: 28px;
   display: flex;
   align-items: center;
+  overflow: visible;
+}
+.lr-slider__tooltip {
+  position: absolute;
+  z-index: 8;
+  bottom: calc(100% + 7px);
+  left: calc(10px + (100% - 20px) * var(--lr-slider-ratio, 0));
+  min-width: max-content;
+  padding: 5px 8px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 7px;
+  color: #171816;
+  background: #fff;
+  box-shadow: 0 5px 16px rgba(0, 0, 0, 0.16);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  letter-spacing: 0.01em;
+  pointer-events: none;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+.lr-slider__tooltip::after {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  width: 7px;
+  height: 7px;
+  content: "";
+  background: inherit;
+  border-radius: 1px;
+  transform: translate(-50%, -4px) rotate(45deg);
+}
+html.liang-rheostat-dark .lr-slider__tooltip,
+html.liang-rheostat-cards .lr-slider__tooltip {
+  color: #f4f1e8;
+  background: rgb(30, 27, 25);
+  border-color: rgba(193, 154, 73, 0.28);
+  box-shadow: 0 5px 16px rgba(0, 0, 0, 0.4);
 }
 html.liang-rheostat-dark .lr-slider {
   --lr-thumb-ring: #d5b56e;
@@ -533,12 +634,114 @@ function mountScene() {
   };
 }
 
-function RheostatChip() {
+function RheostatChip({ directory, load, select, available = true }) {
   const p = usePos();
   const name = nearestName(p);
+  const state = useSyncExternalStore(
+    (listener) => (directory?.subscribe ? directory.subscribe(listener) : () => {}),
+    () => directory?.getSnapshot?.() ?? EMPTY_DIRECTORY,
+    () => EMPTY_DIRECTORY,
+  );
+  const reasoning = modelReasoning(state);
+  const bind = Boolean(
+    available &&
+      reasoning &&
+      isDeepSeekSelection(reasoning.selection) &&
+      reasoning.efforts.length > 0,
+  );
+  const wanted = effortFromPos(p);
+  const entry = bind ? findEffortEntry(reasoning.efforts, wanted) : null;
+  const effortLabel = entry?.name || (bind ? wanted : null);
+  const pendingRef = useRef(false);
+  const lastSentRef = useRef(null);
+  const modelKey = bind
+    ? `${reasoning.selection.provider}::${reasoning.selection.model}`
+    : "";
+
+  useEffect(() => {
+    if (bind && load) load();
+  }, [bind, load]);
+
+  useEffect(() => {
+    lastSentRef.current = null;
+  }, [modelKey]);
+
+  useEffect(() => {
+    if (!bind || !select || !entry) return;
+    const currentId = normalizeEffortId(
+      reasoning.selection.reasoningEffort ?? reasoning.defaultEffort,
+    );
+    if (currentId === wanted) {
+      lastSentRef.current = entry.id;
+      return;
+    }
+    if (pendingRef.current) return;
+    if (lastSentRef.current === entry.id && currentId !== wanted) return;
+
+    const hostChanged = lastSentRef.current != null && currentId != null && currentId !== wanted
+      && normalizeEffortId(lastSentRef.current) !== wanted;
+    if (hostChanged) {
+      const dest = canonicalPosForEffort(currentId);
+      if (dest != null) {
+        lastSentRef.current = currentId;
+        setPos(dest);
+      }
+      return;
+    }
+
+    pendingRef.current = true;
+    lastSentRef.current = entry.id;
+    Promise.resolve(select({
+      provider: reasoning.selection.provider,
+      model: reasoning.selection.model,
+      reasoningEffort: entry.id,
+    })).then((ok) => {
+      pendingRef.current = false;
+      if (!ok) lastSentRef.current = null;
+    }, () => {
+      pendingRef.current = false;
+      lastSentRef.current = null;
+    });
+  }, [bind, wanted, entry?.id, modelKey, reasoning?.selection?.reasoningEffort, reasoning?.defaultEffort, select]);
+
+  const [interacting, setInteracting] = useState(false);
+  const tip = bind && effortLabel ? `${name} · ${effortLabel}` : name;
+  const ratio = p / (FRAME_COUNT - 1);
+
+  const onSlide = (raw) => {
+    setInteracting(true);
+    setPos(raw);
+    if (!bind || !select || !reasoning) return;
+    const next = effortFromPos(raw);
+    const item = findEffortEntry(reasoning.efforts, next);
+    if (!item) return;
+    const currentId = normalizeEffortId(reasoning.selection.reasoningEffort);
+    if (currentId === next || lastSentRef.current === item.id) return;
+    lastSentRef.current = item.id;
+    pendingRef.current = true;
+    Promise.resolve(select({
+      provider: reasoning.selection.provider,
+      model: reasoning.selection.model,
+      reasoningEffort: item.id,
+    })).then((ok) => {
+      pendingRef.current = false;
+      if (!ok) lastSentRef.current = null;
+    }, () => {
+      pendingRef.current = false;
+      lastSentRef.current = null;
+    });
+  };
+
   return (
-    <div className="lr-chip" title={`滑动变阻器 · ${name}（仅外观，不改变模型）`}>
-      <div className="lr-slider">
+    <div
+      className="lr-chip"
+      onPointerEnter={() => setInteracting(true)}
+      onPointerLeave={() => setInteracting(false)}
+    >
+      <div className="lr-slider" style={{ "--lr-slider-ratio": ratio }}>
+        {interacting && (
+          <output className="lr-slider__tooltip">{tip}</output>
+        )}
         <div className="lr-slider__ticks" aria-hidden="true">
           {KEYS.map((key) => (
             <span
@@ -556,9 +759,9 @@ function RheostatChip() {
           step={0.25}
           value={p}
           aria-label="滑动变阻器"
-          aria-valuetext={name}
+          aria-valuetext={bind && effortLabel ? `${name} · ${effortLabel}` : name}
           onPointerDown={(e) => e.stopPropagation()}
-          onChange={(e) => setPos(Number(e.target.value))}
+          onChange={(e) => onSlide(Number(e.target.value))}
         />
       </div>
     </div>
@@ -566,22 +769,48 @@ function RheostatChip() {
 }
 
 function seat(ctx) {
-  const register = (slotName) =>
-    ctx.slots.inject(slotName, () => {
+  try {
+    ctx.slots.inject("conversation.input.right", () => {
       ctx.slots.register(
-        { name: slotName, id: "liang-rheostat", order: 0 },
+        {
+          name: "conversation.input.right",
+          id: "liang-rheostat",
+          order: 0,
+          inject: (sessionId) => {
+            let available = true;
+            try {
+              available = ctx.sessions?.subagentAddress?.(sessionId) === undefined;
+            } catch {
+              available = true;
+            }
+            let directory = null;
+            try {
+              directory = ctx.modelDirectories?.directoryFor?.(sessionId) ?? null;
+            } catch {
+              directory = null;
+            }
+            return {
+              available,
+              directory: directory?.store,
+              load: () => {
+                if (available && directory?.load) void directory.load().catch(() => undefined);
+              },
+              select: (selection) => (available && directory?.select
+                ? directory.select(selection).then((result) => result.ok, () => false)
+                : Promise.resolve(false)),
+            };
+          },
+        },
         RheostatChip,
       );
     });
-  try {
-    register("conversation.input.right");
   } catch (err) {
     console.warn("[liang-rheostat-skin] failed to seat conversation.input.right", err);
   }
 }
 
 export const name = "liang-rheostat-skin";
-export const inject = ["slots"];
+export const inject = ["slots", "modelDirectories", "sessions"];
 
 export function apply(ctx) {
   ensureStyle();
