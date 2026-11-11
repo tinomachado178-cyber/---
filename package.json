@@ -1,6 +1,6 @@
 {
   "name": "dsh-liang-rheostat-skin",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "滑动变阻器：DeepSeek Harness 皮肤。滑杆放在「工作区内修改」右侧，照片从主界面中间偏右覆盖显示；选择 DeepSeek 大模型时，滑杆绑定推理等级：0=off，大于0到2=low，大于2到4=high，大于4到5=max；模型名称后缀随档位变化。",
   "type": "module",
   "license": "MIT",

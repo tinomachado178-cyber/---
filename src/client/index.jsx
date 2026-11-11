@@ -309,6 +309,16 @@ html.liang-rheostat-cards button[aria-label="新会话"]:hover,
 html.liang-rheostat-cards button[aria-label="新建会话"]:hover {
   background: rgb(41, 35, 30) !important;
 }
+html.liang-rheostat-final button[aria-label="新会话"],
+html.liang-rheostat-final button[aria-label="新建会话"] {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+html.liang-rheostat-final button[aria-label="新会话"]:hover,
+html.liang-rheostat-final button[aria-label="新建会话"]:hover {
+  background: transparent !important;
+}
 html.liang-rheostat-cards :is([class*="sidebarCol"], [class*="_sidebarCol"], [data-pane="sidebar"]) {
   --dsw-alias-label-primary: var(--lr-ink) !important;
   --dsw-alias-label-primary-dimmed: rgba(244, 241, 232, 0.82) !important;
@@ -511,8 +521,10 @@ function paintBackgroundVars(root, p) {
   doc.style.setProperty("--lr-glow-amt", amt.toFixed(3));
   const darkMode = luma <= 110;
   const solidCards = p >= 24;
+  const finalGear = p >= 30;
   doc.classList.toggle("liang-rheostat-dark", darkMode);
   doc.classList.toggle("liang-rheostat-cards", solidCards);
+  doc.classList.toggle("liang-rheostat-final", finalGear);
   if (solidCards) {
     doc.style.setProperty("--lr-surface", "rgb(30, 27, 25)");
     doc.style.setProperty("--lr-ink", "#f4f1e8");
@@ -627,7 +639,7 @@ function mountScene() {
     ro.disconnect();
     stage.remove();
     host?.classList.remove(HOST_CLASS);
-    doc.classList.remove("liang-rheostat-on", "liang-rheostat-dark", "liang-rheostat-cards");
+    doc.classList.remove("liang-rheostat-on", "liang-rheostat-dark", "liang-rheostat-cards", "liang-rheostat-final");
     ["--lr-bg-center", "--lr-bg-edge", "--lr-glow-amt", "--lr-surface", "--lr-surface-2", "--lr-ink", "--lr-ink-muted"].forEach((k) => {
       doc.style.removeProperty(k);
     });
