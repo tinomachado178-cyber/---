@@ -1,0 +1,43 @@
+{
+  "name": "dsh-liang-rheostat-skin",
+  "version": "0.1.6",
+  "description": "滑动变阻器：DeepSeek Harness 皮肤。滑杆放在「工作区内修改」右侧，照片从主界面中间偏右覆盖显示；当前不绑定模型或推理档位。",
+  "type": "module",
+  "license": "MIT",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./client": "./lib/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src/index.js",
+    "lib/client.js",
+    "assets/frames",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
+  },
+  "scripts": {
+    "build": "node ./scripts/build-client.mjs"
+  },
+  "keywords": ["deepseek", "harness", "dsh", "dsh-plugin", "skin"],
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}
